@@ -17,6 +17,20 @@ public class Main {
                 continue;
             }
 
+            if (input.startsWith("type ")) {
+                String cmd = input.substring(5);
+
+                if (cmd.equals("echo") ||
+                    cmd.equals("exit") ||
+                    cmd.equals("type")) {
+
+                    System.out.println(cmd + " is a shell builtin");
+                } else {
+                    System.out.println(cmd + ": not found");
+                }
+                continue;
+            }
+
             System.out.println(input + ": command not found");
         }
     }
