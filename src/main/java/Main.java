@@ -1,4 +1,7 @@
 import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -23,7 +26,7 @@ public class Main {
         return null;
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
@@ -65,8 +68,29 @@ public class Main {
                 continue;
             }
 
-            // invalid command
-            System.out.println(input + ": command not found");
+            // External command execution
+            String[] parts = input.split(" ");
+            String executable = findExecutable(parts[0]);
+
+            if (executable != null) {
+
+                List<String> command = new ArrayList<>();
+                command.add(executable);
+
+                for (int i = 1; i < parts.length; i++) {
+                    command.add(parts[i]);
+                }
+
+                ProcessBuilder pb = new ProcessBuilder(command);
+
+                pb.inheritIO(); // show program output in shell
+
+                Process process = pb.start();
+                process.waitFor();
+
+            } else {
+                System.out.println(parts[0] + ": command not found");
+            }
         }
 
         scanner.close();
