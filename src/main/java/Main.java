@@ -1,7 +1,5 @@
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -68,22 +66,17 @@ public class Main {
                 continue;
             }
 
-            // External command execution
+            // External commands
             String[] parts = input.split(" ");
-            String executable = findExecutable(parts[0]);
 
-            if (executable != null) {
+            String executablePath = findExecutable(parts[0]);
 
-                List<String> command = new ArrayList<>();
-                command.add(executable);
+            if (executablePath != null) {
 
-                for (int i = 1; i < parts.length; i++) {
-                    command.add(parts[i]);
-                }
+                ProcessBuilder pb = new ProcessBuilder(parts);
 
-                ProcessBuilder pb = new ProcessBuilder(command);
-
-                pb.inheritIO(); // show program output in shell
+                // inherit stdin/stdout/stderr
+                pb.inheritIO();
 
                 Process process = pb.start();
                 process.waitFor();
