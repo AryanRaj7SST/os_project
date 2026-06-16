@@ -1,5 +1,7 @@
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -24,10 +26,37 @@ public class Main {
         return null;
     }
 
+    private static String[] parseCommand(String input) {
+        List<String> args = new ArrayList<>();
+
+        StringBuilder current = new StringBuilder();
+        boolean inSingleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (c == '\'') {
+                inSingleQuotes = !inSingleQuotes;
+            } else if (Character.isWhitespace(c) && !inSingleQuotes) {
+                if (current.length() > 0) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(c);
+            }
+        }
+
+        if (current.length() > 0) {
+            args.add(current.toString());
+        }
+
+        return args.toArray(new String[0]);
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
-        // Shell's current working directory
         File currentDirectory = new File(System.getProperty("user.dir"));
 
         while (true) {
@@ -35,32 +64,41 @@ public class Main {
 
             String input = scanner.nextLine();
 
+            if (input.isEmpty()) {
+                continue;
+            }
+
+            String[] parts = parseCommand(input);
+
+            if (parts.length == 0) {
+                continue;
+            }
+
             // exit builtin
-            if (input.equals("exit")) {
+            if (parts[0].equals("exit")) {
                 break;
             }
 
             // pwd builtin
-            if (input.equals("pwd")) {
+            if (parts[0].equals("pwd")) {
                 System.out.println(currentDirectory.getCanonicalPath());
                 continue;
             }
 
             // cd builtin
-            if (input.startsWith("cd ")) {
-                String path = input.substring(3);
+            if (parts[0].equals("cd")) {
+                if (parts.length < 2) {
+                    continue;
+                }
 
+                String path = parts[1];
                 File newDir;
 
                 if (path.equals("~")) {
-                    // Home directory
-                    String home = System.getenv("HOME");
-                    newDir = new File(home);
+                    newDir = new File(System.getenv("HOME"));
                 } else if (path.startsWith("/")) {
-                    // Absolute path
                     newDir = new File(path);
                 } else {
-                    // Relative path
                     newDir = new File(currentDirectory, path);
                 }
 
@@ -78,14 +116,24 @@ public class Main {
             }
 
             // echo builtin
-            if (input.startsWith("echo ")) {
-                System.out.println(input.substring(5));
+            if (parts[0].equals("echo")) {
+                for (int i = 1; i < parts.length; i++) {
+                    if (i > 1) {
+                        System.out.print(" ");
+                    }
+                    System.out.print(parts[i]);
+                }
+                System.out.println();
                 continue;
             }
 
             // type builtin
-            if (input.startsWith("type ")) {
-                String cmd = input.substring(5);
+            if (parts[0].equals("type")) {
+                if (parts.length < 2) {
+                    continue;
+                }
+
+                String cmd = parts[1];
 
                 if (cmd.equals("echo")
                         || cmd.equals("exit")
@@ -109,21 +157,16 @@ public class Main {
             }
 
             // External commands
-            String[] parts = input.split(" ");
-
             String executablePath = findExecutable(parts[0]);
 
             if (executablePath != null) {
                 ProcessBuilder pb = new ProcessBuilder(parts);
 
-                // Execute in current shell directory
                 pb.directory(currentDirectory);
-
                 pb.inheritIO();
 
                 Process process = pb.start();
                 process.waitFor();
-
             } else {
                 System.out.println(parts[0] + ": command not found");
             }
