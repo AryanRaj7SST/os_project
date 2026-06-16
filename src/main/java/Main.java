@@ -27,7 +27,7 @@ public class Main {
     public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
-        // Track shell's current directory
+        // Track the shell's current working directory
         File currentDirectory = new File(System.getProperty("user.dir"));
 
         while (true) {
@@ -42,15 +42,25 @@ public class Main {
 
             // pwd builtin
             if (input.equals("pwd")) {
-                System.out.println(currentDirectory.getAbsolutePath());
+                System.out.println(currentDirectory.getCanonicalPath());
                 continue;
             }
 
-            // cd builtin (absolute paths only)
+            // cd builtin (absolute + relative paths)
             if (input.startsWith("cd ")) {
                 String path = input.substring(3);
 
-                File newDir = new File(path);
+                File newDir;
+
+                if (path.startsWith("/")) {
+                    // Absolute path
+                    newDir = new File(path);
+                } else {
+                    // Relative path
+                    newDir = new File(currentDirectory, path);
+                }
+
+                newDir = newDir.getCanonicalFile();
 
                 if (newDir.exists() && newDir.isDirectory()) {
                     currentDirectory = newDir;
@@ -100,12 +110,12 @@ public class Main {
             String executablePath = findExecutable(parts[0]);
 
             if (executablePath != null) {
-
                 ProcessBuilder pb = new ProcessBuilder(parts);
 
-                // Run command in shell's current directory
+                // Run command in the shell's current directory
                 pb.directory(currentDirectory);
 
+                // inherit stdin/stdout/stderr
                 pb.inheritIO();
 
                 Process process = pb.start();
