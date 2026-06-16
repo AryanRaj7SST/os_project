@@ -27,6 +27,9 @@ public class Main {
     public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
+        // Track shell's current directory
+        File currentDirectory = new File(System.getProperty("user.dir"));
+
         while (true) {
             System.out.print("$ ");
 
@@ -39,7 +42,24 @@ public class Main {
 
             // pwd builtin
             if (input.equals("pwd")) {
-                System.out.println(System.getProperty("user.dir"));
+                System.out.println(currentDirectory.getAbsolutePath());
+                continue;
+            }
+
+            // cd builtin (absolute paths only)
+            if (input.startsWith("cd ")) {
+                String path = input.substring(3);
+
+                File newDir = new File(path);
+
+                if (newDir.exists() && newDir.isDirectory()) {
+                    currentDirectory = newDir;
+                } else {
+                    System.out.println(
+                        "cd: " + path + ": No such file or directory"
+                    );
+                }
+
                 continue;
             }
 
@@ -56,7 +76,8 @@ public class Main {
                 if (cmd.equals("echo")
                         || cmd.equals("exit")
                         || cmd.equals("type")
-                        || cmd.equals("pwd")) {
+                        || cmd.equals("pwd")
+                        || cmd.equals("cd")) {
 
                     System.out.println(cmd + " is a shell builtin");
 
@@ -82,7 +103,9 @@ public class Main {
 
                 ProcessBuilder pb = new ProcessBuilder(parts);
 
-                // inherit stdin/stdout/stderr
+                // Run command in shell's current directory
+                pb.directory(currentDirectory);
+
                 pb.inheritIO();
 
                 Process process = pb.start();
