@@ -1,57 +1,98 @@
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.util.Scanner;
 
 public class Main {
-    public static void main(String[] args) throws IOException {
-        BufferedReader reader =
-                new BufferedReader(new InputStreamReader(System.in));
+
+    private static String findExecutable(String command) {
+        String pathEnv = System.getenv("PATH");
+
+        if (pathEnv == null) {
+            return null;
+        }
+
+        String[] directories = pathEnv.split(File.pathSeparator);
+
+        for (String dir : directories) {
+            File file = new File(dir, command);
+
+            if (file.exists() && file.isFile() && file.canExecute()) {
+                return file.getAbsolutePath();
+            }
+        }
+
+        return null;
+    }
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+        Scanner scanner = new Scanner(System.in);
 
         while (true) {
             System.out.print("$ ");
-            System.out.flush();
 
-            String input = reader.readLine();
-            if (input == null) {
+            String input = scanner.nextLine();
+
+            // exit builtin
+            if (input.equals("exit")) {
                 break;
             }
 
-            String[] parts = input.trim().split("\\s+");
-            String command = parts[0];
+            // pwd builtin
+            if (input.equals("pwd")) {
+                System.out.println(System.getProperty("user.dir"));
+                continue;
+            }
 
-            switch (command) {
-                case "exit":
-                    if (parts.length > 1 && parts[1].equals("0")) {
-                        System.exit(0);
-                    }
-                    break;
+            // echo builtin
+            if (input.startsWith("echo ")) {
+                System.out.println(input.substring(5));
+                continue;
+            }
 
-                case "echo":
-                    System.out.println(input.substring(5));
-                    break;
+            // type builtin
+            if (input.startsWith("type ")) {
+                String cmd = input.substring(5);
 
-                case "pwd":
-                    System.out.println(System.getProperty("user.dir"));
-                    break;
+                if (cmd.equals("echo")
+                        || cmd.equals("exit")
+                        || cmd.equals("type")
+                        || cmd.equals("pwd")) {
 
-                case "type":
-                    if (parts.length < 2) {
-                        break;
-                    }
+                    System.out.println(cmd + " is a shell builtin");
 
-                    String cmd = parts[1];
+                } else {
+                    String executablePath = findExecutable(cmd);
 
-                    if (cmd.equals("echo")
-                            || cmd.equals("exit")
-                            || cmd.equals("type")
-                            || cmd.equals("pwd")) {
-                        System.out.println(cmd + " is a shell builtin");
+                    if (executablePath != null) {
+                        System.out.println(cmd + " is " + executablePath);
                     } else {
                         System.out.println(cmd + ": not found");
                     }
-                    break;
+                }
 
-                default:
-                    System.out.println(command + ": command not found");
+                continue;
+            }
+
+            // External commands
+            String[] parts = input.split(" ");
+
+            String executablePath = findExecutable(parts[0]);
+
+            if (executablePath != null) {
+
+                ProcessBuilder pb = new ProcessBuilder(parts);
+
+                // inherit stdin/stdout/stderr
+                pb.inheritIO();
+
+                Process process = pb.start();
+                process.waitFor();
+
+            } else {
+                System.out.println(parts[0] + ": command not found");
             }
         }
+
+        scanner.close();
     }
 }
