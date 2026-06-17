@@ -36,7 +36,7 @@ public class Main {
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
 
-            // Inside double quotes
+            // Backslashes inside double quotes
             if (inDoubleQuotes && c == '\\') {
                 if (i + 1 < input.length()) {
                     char next = input.charAt(i + 1);
@@ -55,7 +55,7 @@ public class Main {
                 continue;
             }
 
-            // Outside quotes
+            // Backslashes outside quotes
             if (!inSingleQuotes && !inDoubleQuotes && c == '\\') {
                 if (i + 1 < input.length()) {
                     current.append(input.charAt(i + 1));
@@ -64,16 +64,19 @@ public class Main {
                 continue;
             }
 
+            // Single quotes
             if (c == '\'' && !inDoubleQuotes) {
                 inSingleQuotes = !inSingleQuotes;
                 continue;
             }
 
+            // Double quotes
             if (c == '"' && !inSingleQuotes) {
                 inDoubleQuotes = !inDoubleQuotes;
                 continue;
             }
 
+            // Argument separator
             if (Character.isWhitespace(c)
                     && !inSingleQuotes
                     && !inDoubleQuotes) {
@@ -199,7 +202,11 @@ public class Main {
             String executablePath = findExecutable(parts[0]);
 
             if (executablePath != null) {
-                ProcessBuilder pb = new ProcessBuilder(parts);
+
+                String[] command = parts.clone();
+                command[0] = executablePath;
+
+                ProcessBuilder pb = new ProcessBuilder(command);
 
                 pb.directory(currentDirectory);
                 pb.inheritIO();
