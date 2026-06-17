@@ -170,7 +170,6 @@ public class Main {
 
         File currentDirectory = new File(System.getProperty("user.dir"));
         List<Job> jobs = new ArrayList<>();
-     
 
         shellLoop:
         while (true) {
@@ -234,79 +233,94 @@ public class Main {
 
             parts = commandParts.toArray(new String[0]);
 
-            for (String part : parts) {
-                if (part.equals("|")) {
-
-                    int pipeIndex = -1;
-
-                    for (int i = 0; i < parts.length; i++) {
-                        if (parts[i].equals("|")) {
-                            pipeIndex = i;
-                            break;
-                        }
-                    }
-
-                    if (pipeIndex > 0 && pipeIndex < parts.length - 1) {
-                        String[] leftParts = Arrays.copyOfRange(parts, 0, pipeIndex);
-                        String[] rightParts = Arrays.copyOfRange(parts, pipeIndex + 1, parts.length);
-
-                        ProcessBuilder leftBuilder = new ProcessBuilder(leftParts);
-                        ProcessBuilder rightBuilder = new ProcessBuilder(rightParts);
-
-                        leftBuilder.directory(currentDirectory);
-                        leftBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                        leftBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE);
-                        leftBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-                        rightBuilder.directory(currentDirectory);
-                        rightBuilder.redirectInput(ProcessBuilder.Redirect.PIPE);
-
-                        if (outputFile != null) {
-                            if (appendOutput) {
-                                rightBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
-                            } else {
-                                rightBuilder.redirectOutput(new File(outputFile));
-                            }
-                        } else {
-                            rightBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                        }
-
-                        if (errorFile != null) {
-                            if (appendError) {
-                                rightBuilder.redirectError(
-                                        ProcessBuilder.Redirect.appendTo(
-                                                new File(errorFile)));
-                            } else {
-                                rightBuilder.redirectError(new File(errorFile));
-                            }
-                        } else {
-                            rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
-                        }
-
-                        Process leftProcess = leftBuilder.start();
-                        Process rightProcess = rightBuilder.start();
-
-                        Thread pipeThread = new Thread(() -> {
-                            try (
-                                    var in = leftProcess.getInputStream();
-                                    var out = rightProcess.getOutputStream()) {
-
-                                in.transferTo(out);
-                                out.close();
-
-                            } catch (IOException ignored) {
-                            }
-                        });
-
-                        pipeThread.start();
-
-                        leftProcess.waitFor();
-                        pipeThread.join();
-                        rightProcess.waitFor();
-
-                        continue shellLoop;
-                    }
+            // Check for pipe operator
+            int pipeIndex = -1;
+            for (int i = 0; i < parts.length; i++) {
+                if (parts[i].equals("|")) {
+                    pipeIndex = i;
+                    break;
                 }
+            }
+
+            if (pipeIndex > 0 && pipeIndex < parts.length - 1) {
+                String[] leftParts = Arrays.copyOfRange(parts, 0, pipeIndex);
+                String[] rightParts = Arrays.copyOfRange(parts, pipeIndex + 1, parts.length);
+
+                ProcessBuilder leftBuilder = new ProcessBuilder(leftParts);
+                ProcessBuilder rightBuilder = new ProcessBuilder(rightParts);
+
+                leftBuilder.directory(currentDirectory);
+                leftBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                // Left stdout goes to a pipe — we manage it manually
+                leftBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                rightBuilder.directory(currentDirectory);
+                // Right stdin comes from the pipe — we manage it manually
+                rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                if (outputFile != null) {
+                    if (appendOutput) {
+                        rightBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
+                    } else {
+                        rightBuilder.redirectOutput(new File(outputFile));
+                    }
+                } else {
+                    rightBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                }
+
+                if (errorFile != null) {
+                    if (appendError) {
+                        rightBuilder.redirectError(
+                                ProcessBuilder.Redirect.appendTo(new File(errorFile)));
+                    } else {
+                        rightBuilder.redirectError(new File(errorFile));
+                    }
+                } else {
+                    rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+                }
+
+                Process leftProcess = leftBuilder.start();
+                Process rightProcess = rightBuilder.start();
+
+                // Thread to pump bytes from left stdout → right stdin
+                Thread pipeThread = new Thread(() -> {
+                    try (
+                        var in = leftProcess.getInputStream();
+                        var out = rightProcess.getOutputStream()
+                    ) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) {
+                            try {
+                                out.write(buf, 0, n);
+                                out.flush();
+                            } catch (IOException e) {
+                                // Right process closed its stdin (e.g. head exited after N lines)
+                                break;
+                            }
+                        }
+                    } catch (IOException ignored) {
+                        // Left process closed its stdout — normal EOF
+                    }
+                    // Destroy left process in case it's still running (e.g. tail -f)
+                    leftProcess.destroy();
+                });
+
+                pipeThread.start();
+
+                // Wait for right process to finish first — it determines pipeline exit
+                rightProcess.waitFor();
+
+                // Once right is done, kill left if still running (handles tail -f case)
+                leftProcess.destroy();
+
+                // Wait for pipe thread to clean up
+                pipeThread.join();
+
+                // Reap left process
+                leftProcess.waitFor();
+
+                continue shellLoop;
             }
 
             boolean backgroundJob = false;
