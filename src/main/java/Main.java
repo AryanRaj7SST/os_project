@@ -28,20 +28,27 @@ public class Main {
 
     private static String[] parseCommand(String input) {
         List<String> args = new ArrayList<>();
-
         StringBuilder current = new StringBuilder();
+
         boolean inSingleQuotes = false;
+        boolean inDoubleQuotes = false;
 
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
 
-            if (c == '\'') {
+            if (c == '\'' && !inDoubleQuotes) {
                 inSingleQuotes = !inSingleQuotes;
-            } else if (Character.isWhitespace(c) && !inSingleQuotes) {
+            } else if (c == '"' && !inSingleQuotes) {
+                inDoubleQuotes = !inDoubleQuotes;
+            } else if (Character.isWhitespace(c)
+                    && !inSingleQuotes
+                    && !inDoubleQuotes) {
+
                 if (current.length() > 0) {
                     args.add(current.toString());
                     current.setLength(0);
                 }
+
             } else {
                 current.append(c);
             }
@@ -95,7 +102,8 @@ public class Main {
                 File newDir;
 
                 if (path.equals("~")) {
-                    newDir = new File(System.getenv("HOME"));
+                    String home = System.getenv("HOME");
+                    newDir = new File(home);
                 } else if (path.startsWith("/")) {
                     newDir = new File(path);
                 } else {
@@ -108,8 +116,7 @@ public class Main {
                     currentDirectory = newDir;
                 } else {
                     System.out.println(
-                        "cd: " + path + ": No such file or directory"
-                    );
+                            "cd: " + path + ": No such file or directory");
                 }
 
                 continue;
@@ -167,6 +174,7 @@ public class Main {
 
                 Process process = pb.start();
                 process.waitFor();
+
             } else {
                 System.out.println(parts[0] + ": command not found");
             }
