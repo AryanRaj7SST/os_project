@@ -199,26 +199,31 @@ public class Main {
             }
 
             // External commands
-            String executablePath = findExecutable(parts[0]);
+            // External commands
+String executablePath = findExecutable(parts[0]);
 
-            if (executablePath != null) {
+if (executablePath != null) {
 
-                String[] command = parts.clone();
-                command[0] = executablePath;
+    List<String> command = new ArrayList<>();
+    command.add(executablePath); // executable to launch
 
-                ProcessBuilder pb = new ProcessBuilder(command);
+    for (int i = 1; i < parts.length; i++) {
+        command.add(parts[i]);
+    }
 
-                pb.directory(currentDirectory);
-                pb.inheritIO();
+    ProcessBuilder pb = new ProcessBuilder(command);
 
-                Process process = pb.start();
-                process.waitFor();
+    pb.directory(currentDirectory);
+    pb.inheritIO();
 
-            } else {
-                System.out.println(parts[0] + ": command not found");
-            }
-        }
+    Process process = pb.start();
+    process.waitFor();
+
+} else {
+    System.out.println(parts[0] + ": command not found");
+}
 
         scanner.close();
     }
+}
 }
