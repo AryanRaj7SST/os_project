@@ -150,8 +150,7 @@ public class Main {
                 if (newDir.exists() && newDir.isDirectory()) {
                     currentDirectory = newDir;
                 } else {
-                    System.out.println(
-                            "cd: " + path + ": No such file or directory");
+                    System.out.println("cd: " + path + ": No such file or directory");
                 }
 
                 continue;
@@ -199,31 +198,23 @@ public class Main {
             }
 
             // External commands
-            // External commands
-String executablePath = findExecutable(parts[0]);
+            String executablePath = findExecutable(parts[0]);
 
-if (executablePath != null) {
+            if (executablePath != null) {
 
-    List<String> command = new ArrayList<>();
-    command.add(executablePath); // executable to launch
+                ProcessBuilder pb = new ProcessBuilder(parts);
 
-    for (int i = 1; i < parts.length; i++) {
-        command.add(parts[i]);
-    }
+                pb.directory(currentDirectory);
+                pb.inheritIO();
 
-    ProcessBuilder pb = new ProcessBuilder(command);
+                Process process = pb.start();
+                process.waitFor();
 
-    pb.directory(currentDirectory);
-    pb.inheritIO();
-
-    Process process = pb.start();
-    process.waitFor();
-
-} else {
-    System.out.println(parts[0] + ": command not found");
-}
+            } else {
+                System.out.println(parts[0] + ": command not found");
+            }
+        }
 
         scanner.close();
     }
-}
 }
