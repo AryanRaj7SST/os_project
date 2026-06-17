@@ -36,6 +36,15 @@ public class Main {
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
 
+            // Backslash escaping outside quotes
+            if (!inSingleQuotes && !inDoubleQuotes && c == '\\') {
+                if (i + 1 < input.length()) {
+                    current.append(input.charAt(i + 1));
+                    i++;
+                }
+                continue;
+            }
+
             if (c == '\'' && !inDoubleQuotes) {
                 inSingleQuotes = !inSingleQuotes;
             } else if (c == '"' && !inSingleQuotes) {
@@ -102,8 +111,7 @@ public class Main {
                 File newDir;
 
                 if (path.equals("~")) {
-                    String home = System.getenv("HOME");
-                    newDir = new File(home);
+                    newDir = new File(System.getenv("HOME"));
                 } else if (path.startsWith("/")) {
                     newDir = new File(path);
                 } else {
