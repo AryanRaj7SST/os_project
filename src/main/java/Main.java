@@ -8,6 +8,20 @@ import java.util.Scanner;
 
 public class Main {
 
+    private static class Job {
+        int jobId;
+        long pid;
+        String command;
+        String status;
+
+        Job(int jobId, long pid, String command, String status) {
+            this.jobId = jobId;
+            this.pid = pid;
+            this.command = command;
+            this.status = status;
+        }
+    }
+
     private static String findExecutable(String command) {
         String pathEnv = System.getenv("PATH");
 
@@ -97,6 +111,8 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
 
         File currentDirectory = new File(System.getProperty("user.dir"));
+        List<Job> jobs = new ArrayList<>();
+        int nextJobId = 1;
 
         while (true) {
             System.out.print("$ ");
@@ -244,6 +260,15 @@ public class Main {
             }
 
             if (parts[0].equals("jobs")) {
+
+                for (Job job : jobs) {
+                    System.out.printf(
+                            "[%d]+  %-24s%s%n",
+                            job.jobId,
+                            job.status,
+                            job.command);
+                }
+
                 continue;
             }
 
@@ -344,7 +369,17 @@ public class Main {
                 if (backgroundJob) {
                     long pid = process.pid();
 
-                    System.out.println("[1] " + pid);
+                    Job job = new Job(
+                            nextJobId,
+                            pid,
+                            input,
+                            "Running");
+
+                    jobs.add(job);
+
+                    System.out.println("[" + nextJobId + "] " + pid);
+
+                    nextJobId++;
 
                     // don't wait
                 } else {
