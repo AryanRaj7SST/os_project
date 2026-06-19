@@ -26,87 +26,69 @@ public class Main {
         }
 
         return null;
-    }
+            // jobs builtin
+            if (parts[0].equals("jobs")) {
+                continue;
+            }
 
-    private static String[] parseCommand(String input) {
-        List<String> args = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
+            // echo builtin
+            if (parts[0].equals("echo")) {
+                StringBuilder sb = new StringBuilder();
 
-        boolean inSingleQuotes = false;
-        boolean inDoubleQuotes = false;
+                for (int i = 1; i < parts.length; i++) {
+                    if (i > 1) {
+                        sb.append(" ");
+                    }
+                    sb.append(parts[i]);
+                }
 
-        for (int i = 0; i < input.length(); i++) {
-            char c = input.charAt(i);
-
-            // Backslashes inside double quotes
-            if (inDoubleQuotes && c == '\\') {
-                if (i + 1 < input.length()) {
-                    char next = input.charAt(i + 1);
-
-                    if (next == '"' || next == '\\') {
-                        current.append(next);
-                        i++;
-                    } else {
-                        current.append('\\');
-                        current.append(next);
-                        i++;
+                if (outputFile != null) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
+                        ps.println(sb);
                     }
                 } else {
-                    current.append('\\');
+                    System.out.println(sb);
                 }
+
                 continue;
             }
 
-            // Backslashes outside quotes
-            if (!inSingleQuotes && !inDoubleQuotes && c == '\\') {
-                if (i + 1 < input.length()) {
-                    current.append(input.charAt(i + 1));
-                    i++;
+            // type builtin
+            if (parts[0].equals("type")) {
+                if (parts.length < 2) {
+                    continue;
                 }
-                continue;
-            }
 
-            if (c == '\'' && !inDoubleQuotes) {
-                inSingleQuotes = !inSingleQuotes;
-                continue;
-            }
+                String cmd = parts[1];
+                String result;
 
-            if (c == '"' && !inSingleQuotes) {
-                inDoubleQuotes = !inDoubleQuotes;
-                continue;
-            }
+                if (cmd.equals("echo")
+                        || cmd.equals("exit")
+                        || cmd.equals("type")
+                        || cmd.equals("pwd")
+                        || cmd.equals("cd")
+                        || cmd.equals("jobs")) {
 
-            if (Character.isWhitespace(c)
-                    && !inSingleQuotes
-                    && !inDoubleQuotes) {
+                    result = cmd + " is a shell builtin";
 
-                if (current.length() > 0) {
-                    args.add(current.toString());
-                    current.setLength(0);
+                } else {
+                    String executablePath = findExecutable(cmd);
+
+                    if (executablePath != null) {
+                        result = cmd + " is " + executablePath;
+                    } else {
+                        result = cmd + ": not found";
+                    }
                 }
-            } else {
-                current.append(c);
-            }
-        }
 
-        if (current.length() > 0) {
-            args.add(current.toString());
-        }
+                if (outputFile != null) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
+                        ps.println(result);
+                    }
+                } else {
+                    System.out.println(result);
+                }
 
-        return args.toArray(new String[0]);
-    }
-
-    public static void main(String[] args) throws IOException, InterruptedException {
-        Scanner scanner = new Scanner(System.in);
-
-        File currentDirectory = new File(System.getProperty("user.dir"));
-
-        while (true) {
-            System.out.print("$ ");
-
-            String input = scanner.nextLine();
-
-            if (input.isEmpty()) {
                 continue;
             }
 
@@ -203,6 +185,11 @@ public class Main {
                 }
 
                 continue;
+                // jobs builtin
+                if (parts[0].equals("jobs")) {
+                    continue;
+                }
+
             }
 
             // cd builtin
@@ -236,6 +223,11 @@ public class Main {
                     }
                 }
 
+                continue;
+            }
+
+            // jobs builtin
+            if (parts[0].equals("jobs")) {
                 continue;
             }
 
@@ -274,7 +266,8 @@ public class Main {
                         || cmd.equals("exit")
                         || cmd.equals("type")
                         || cmd.equals("pwd")
-                        || cmd.equals("cd")) {
+                        || cmd.equals("cd")
+                        || cmd.equals("jobs")) {
 
                     result = cmd + " is a shell builtin";
 
@@ -347,5 +340,4 @@ public class Main {
         }
 
         scanner.close();
-    }
-}
+    }}
