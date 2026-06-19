@@ -114,12 +114,23 @@ public class Main {
 
             String outputFile = null;
             String errorFile = null;
+            boolean appendOutput = false;
 
             List<String> commandParts = new ArrayList<>();
 
             for (int i = 0; i < parts.length; i++) {
 
                 if (parts[i].equals(">") || parts[i].equals("1>")) {
+                    appendOutput = false;
+                    if (i + 1 < parts.length) {
+                        outputFile = parts[i + 1];
+                    }
+                    i++;
+                    continue;
+                }
+
+                if (parts[i].equals(">>") || parts[i].equals("1>>")) {
+                    appendOutput = true;
                     if (i + 1 < parts.length) {
                         outputFile = parts[i + 1];
                     }
@@ -145,17 +156,17 @@ public class Main {
             }
 
             if (errorFile != null) {
-    File errFile = new File(errorFile);
+                File errFile = new File(errorFile);
 
-    File parent = errFile.getParentFile();
-    if (parent != null) {
-        parent.mkdirs();
-    }
+                File parent = errFile.getParentFile();
+                if (parent != null) {
+                    parent.mkdirs();
+                }
 
-    try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
-        // create empty stderr file
-    }
-}
+                try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
+                    // create empty stderr file
+                }
+            }
 
             // exit builtin
             if (parts[0].equals("exit")) {
@@ -167,7 +178,7 @@ public class Main {
                 String output = currentDirectory.getCanonicalPath();
 
                 if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile))) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
                         ps.println(output);
                     }
                 } else {
@@ -217,7 +228,7 @@ public class Main {
                 }
 
                 if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile))) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
                         ps.println(sb);
                     }
                 } else {
@@ -255,7 +266,7 @@ public class Main {
                 }
 
                 if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile))) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
                         ps.println(result);
                     }
                 } else {
@@ -276,7 +287,11 @@ public class Main {
                 pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
                 if (outputFile != null) {
-                    pb.redirectOutput(new File(outputFile));
+                    if (appendOutput) {
+                        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
+                    } else {
+                        pb.redirectOutput(new File(outputFile));
+                    }
                 } else {
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 }
