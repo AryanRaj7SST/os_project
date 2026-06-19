@@ -115,6 +115,7 @@ public class Main {
             String outputFile = null;
             String errorFile = null;
             boolean appendOutput = false;
+            boolean appendError = false;
 
             List<String> commandParts = new ArrayList<>();
 
@@ -141,6 +142,16 @@ public class Main {
                 if (parts[i].equals("2>")) {
                     if (i + 1 < parts.length) {
                         errorFile = parts[i + 1];
+                        appendError = false;
+                    }
+                    i++;
+                    continue;
+                }
+
+                if (parts[i].equals("2>>")) {
+                    if (i + 1 < parts.length) {
+                        errorFile = parts[i + 1];
+                        appendError = true;
                     }
                     i++;
                     continue;
@@ -163,8 +174,14 @@ public class Main {
                     parent.mkdirs();
                 }
 
-                try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
-                    // create empty stderr file
+                if (!appendError) {
+                    try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
+                        // create empty stderr file
+                    }
+                } else {
+                    if (!errFile.exists()) {
+                        errFile.createNewFile();
+                    }
                 }
             }
 
@@ -210,7 +227,13 @@ public class Main {
                 if (newDir.exists() && newDir.isDirectory()) {
                     currentDirectory = newDir;
                 } else {
-                    System.out.println("cd: " + path + ": No such file or directory");
+                    if (errorFile != null) {
+                        try (PrintStream ps = new PrintStream(new FileOutputStream(errorFile, appendError))) {
+                            ps.println("cd: " + path + ": No such file or directory");
+                        }
+                    } else {
+                        System.out.println("cd: " + path + ": No such file or directory");
+                    }
                 }
 
                 continue;
@@ -297,7 +320,14 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-                    pb.redirectError(new File(errorFile));
+
+                    if (appendError) {
+                        pb.redirectError(
+                                ProcessBuilder.Redirect.appendTo(
+                                        new File(errorFile)));
+                    } else {
+                        pb.redirectError(new File(errorFile));
+                    }
                 } else {
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                 }
@@ -306,7 +336,13 @@ public class Main {
                 process.waitFor();
 
             } else {
-                System.out.println(parts[0] + ": command not found");
+                if (errorFile != null) {
+                    try (PrintStream ps = new PrintStream(new FileOutputStream(errorFile, appendError))) {
+                        ps.println(parts[0] + ": command not found");
+                    }
+                } else {
+                    System.out.println(parts[0] + ": command not found");
+                }
             }
         }
 
