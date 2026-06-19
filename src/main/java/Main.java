@@ -159,6 +159,16 @@ public class Main {
 
             parts = commandParts.toArray(new String[0]);
 
+            boolean backgroundJob = false;
+
+            if (parts.length > 0 && parts[parts.length - 1].equals("&")) {
+                backgroundJob = true;
+
+                String[] temp = new String[parts.length - 1];
+                System.arraycopy(parts, 0, temp, 0, parts.length - 1);
+                parts = temp;
+            }
+
             if (parts.length == 0) {
                 continue;
             }
@@ -330,7 +340,16 @@ public class Main {
                 }
 
                 Process process = pb.start();
-                process.waitFor();
+
+                if (backgroundJob) {
+                    long pid = process.pid();
+
+                    System.out.println("[1] " + pid);
+
+                    // don't wait
+                } else {
+                    process.waitFor();
+                }
 
             } else {
                 if (errorFile != null) {
