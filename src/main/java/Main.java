@@ -144,6 +144,19 @@ public class Main {
                 continue;
             }
 
+            if (errorFile != null) {
+    File errFile = new File(errorFile);
+
+    File parent = errFile.getParentFile();
+    if (parent != null) {
+        parent.mkdirs();
+    }
+
+    try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
+        // create empty stderr file
+    }
+}
+
             // exit builtin
             if (parts[0].equals("exit")) {
                 break;
