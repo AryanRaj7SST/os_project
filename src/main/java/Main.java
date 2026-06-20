@@ -304,12 +304,14 @@ public class Main {
 
             if (parts[0].equals("jobs")) {
 
-                reapCompletedJobs(jobs);
+                List<Job> completedJobs = new ArrayList<>();
 
                 int size = jobs.size();
 
                 for (int i = 0; i < size; i++) {
                     Job job = jobs.get(i);
+
+                    boolean done = !job.process.isAlive();
 
                     String marker = " ";
 
@@ -321,14 +323,31 @@ public class Main {
                         marker = "-";
                     }
 
-                    System.out.printf(
-                            "[%d]%s  %-24s%s%n",
-                            job.jobId,
-                            marker,
-                            "Running",
-                            job.command);
+                    if (done) {
+                        String cmd = job.command;
+                        if (cmd.endsWith(" &")) {
+                            cmd = cmd.substring(0, cmd.length() - 2);
+                        }
+
+                        System.out.printf(
+                                "[%d]%s  %-24s%s%n",
+                                job.jobId,
+                                marker,
+                                "Done",
+                                cmd);
+
+                        completedJobs.add(job);
+                    } else {
+                        System.out.printf(
+                                "[%d]%s  %-24s%s%n",
+                                job.jobId,
+                                marker,
+                                "Running",
+                                job.command);
+                    }
                 }
 
+                jobs.removeAll(completedJobs);
                 continue;
             }
 
