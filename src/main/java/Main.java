@@ -265,9 +265,21 @@ public class Main {
 
                 for (int i = 0; i < size; i++) {
                     Job job = jobs.get(i);
+
+                    String marker = " ";
+
+                    if (size == 1) {
+                        marker = "+";
+                    } else if (i == size - 1) {
+                        marker = "+";
+                    } else if (i == size - 2) {
+                        marker = "-";
+                    }
+
                     System.out.printf(
-                            "[%d]+  %-24s%s%n",
+                            "[%d]%s  %-24s%s%n",
                             job.jobId,
+                            marker,
                             job.status,
                             job.command);
                 }
