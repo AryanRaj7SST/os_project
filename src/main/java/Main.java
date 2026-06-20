@@ -109,6 +109,23 @@ public class Main {
         return args.toArray(new String[0]);
     }
 
+    private static void reapCompletedJobs(List jobs) {
+
+        List completedJobs = new ArrayList<>();
+
+        int size = jobs.size();
+
+        for (int i = 0; i < size; i++) {
+            Job job = (Job) jobs.get(i);
+
+            if (!job.process.isAlive()) {
+                completedJobs.add(job);
+            }
+        }
+
+        jobs.removeAll(completedJobs);
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
@@ -117,6 +134,8 @@ public class Main {
         int nextJobId = 1;
 
         while (true) {
+            reapCompletedJobs(jobs);
+
             System.out.print("$ ");
 
             String input = scanner.nextLine();
@@ -263,14 +282,12 @@ public class Main {
 
             if (parts[0].equals("jobs")) {
 
-                List<Job> completedJobs = new ArrayList<>();
+                reapCompletedJobs(jobs);
 
                 int size = jobs.size();
 
                 for (int i = 0; i < size; i++) {
                     Job job = jobs.get(i);
-
-                    boolean done = !job.process.isAlive();
 
                     String marker = " ";
 
@@ -282,32 +299,13 @@ public class Main {
                         marker = "-";
                     }
 
-                    if (done) {
-                        String cmd = job.command;
-
-                        if (cmd.endsWith(" &")) {
-                            cmd = cmd.substring(0, cmd.length() - 2);
-                        }
-
-                        System.out.printf(
-                                "[%d]%s  %-24s%s%n",
-                                job.jobId,
-                                marker,
-                                "Done",
-                                cmd);
-
-                        completedJobs.add(job);
-                    } else {
-                        System.out.printf(
-                                "[%d]%s  %-24s%s%n",
-                                job.jobId,
-                                marker,
-                                "Running",
-                                job.command);
-                    }
+                    System.out.printf(
+                            "[%d]%s  %-24s%s%n",
+                            job.jobId,
+                            marker,
+                            "Running",
+                            job.command);
                 }
-
-                jobs.removeAll(completedJobs);
 
                 continue;
             }
