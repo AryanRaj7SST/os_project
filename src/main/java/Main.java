@@ -264,7 +264,7 @@ public class Main {
                 int size = jobs.size();
 
                 for (int i = 0; i < size; i++) {
-                    Job job = jobs.get(size - 1 - i);
+                    Job job = jobs.get(i);
                     System.out.printf(
                             "[%d]+  %-24s%s%n",
                             job.jobId,
