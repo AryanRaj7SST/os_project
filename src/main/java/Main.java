@@ -109,16 +109,40 @@ public class Main {
         return args.toArray(new String[0]);
     }
 
-    private static void reapCompletedJobs(List jobs) {
+    private static void reapCompletedJobs(List<Job> jobs) {
 
-        List completedJobs = new ArrayList<>();
+        List<Job> completedJobs = new ArrayList<>();
 
         int size = jobs.size();
 
         for (int i = 0; i < size; i++) {
-            Job job = (Job) jobs.get(i);
+            Job job = jobs.get(i);
 
             if (!job.process.isAlive()) {
+
+                String marker = " ";
+
+                if (size == 1) {
+                    marker = "+";
+                } else if (i == size - 1) {
+                    marker = "+";
+                } else if (i == size - 2) {
+                    marker = "-";
+                }
+
+                String cmd = job.command;
+
+                if (cmd.endsWith(" &")) {
+                    cmd = cmd.substring(0, cmd.length() - 2);
+                }
+
+                System.out.printf(
+                        "[%d]%s  %-24s%s%n",
+                        job.jobId,
+                        marker,
+                        "Done",
+                        cmd);
+
                 completedJobs.add(job);
             }
         }
@@ -135,9 +159,7 @@ public class Main {
 
         while (true) {
             reapCompletedJobs(jobs);
-
             System.out.print("$ ");
-
             String input = scanner.nextLine();
 
             if (input.isEmpty()) {
