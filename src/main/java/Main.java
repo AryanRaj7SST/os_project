@@ -261,7 +261,10 @@ public class Main {
 
             if (parts[0].equals("jobs")) {
 
-                for (Job job : jobs) {
+                int size = jobs.size();
+
+                for (int i = 0; i < size; i++) {
+                    Job job = jobs.get(size - 1 - i);
                     System.out.printf(
                             "[%d]+  %-24s%s%n",
                             job.jobId,
