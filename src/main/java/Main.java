@@ -13,12 +13,14 @@ public class Main {
         long pid;
         String command;
         String status;
+        Process process;
 
-        Job(int jobId, long pid, String command, String status) {
+        Job(int jobId, long pid, String command, String status, Process process) {
             this.jobId = jobId;
             this.pid = pid;
             this.command = command;
             this.status = status;
+            this.process = process;
         }
     }
 
@@ -261,10 +263,14 @@ public class Main {
 
             if (parts[0].equals("jobs")) {
 
+                List<Job> completedJobs = new ArrayList<>();
+
                 int size = jobs.size();
 
                 for (int i = 0; i < size; i++) {
                     Job job = jobs.get(i);
+
+                    boolean done = !job.process.isAlive();
 
                     String marker = " ";
 
@@ -276,13 +282,32 @@ public class Main {
                         marker = "-";
                     }
 
-                    System.out.printf(
-                            "[%d]%s  %-24s%s%n",
-                            job.jobId,
-                            marker,
-                            job.status,
-                            job.command);
+                    if (done) {
+                        String cmd = job.command;
+
+                        if (cmd.endsWith(" &")) {
+                            cmd = cmd.substring(0, cmd.length() - 2);
+                        }
+
+                        System.out.printf(
+                                "[%d]%s  %-24s%s%n",
+                                job.jobId,
+                                marker,
+                                "Done",
+                                cmd);
+
+                        completedJobs.add(job);
+                    } else {
+                        System.out.printf(
+                                "[%d]%s  %-24s%s%n",
+                                job.jobId,
+                                marker,
+                                "Running",
+                                job.command);
+                    }
                 }
+
+                jobs.removeAll(completedJobs);
 
                 continue;
             }
@@ -388,7 +413,8 @@ public class Main {
                             nextJobId,
                             pid,
                             input,
-                            "Running");
+                            "Running",
+                            process);
 
                     jobs.add(job);
 
