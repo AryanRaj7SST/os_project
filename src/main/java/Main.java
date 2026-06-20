@@ -150,12 +150,26 @@ public class Main {
         jobs.removeAll(completedJobs);
     }
 
+    private static int getNextJobId(List<Job> jobs) {
+        if (jobs.isEmpty()) {
+            return 1;
+        }
+
+        int max = 0;
+
+        for (Job job : jobs) {
+            max = Math.max(max, job.jobId);
+        }
+
+        return max + 1;
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException {
         Scanner scanner = new Scanner(System.in);
 
         File currentDirectory = new File(System.getProperty("user.dir"));
         List<Job> jobs = new ArrayList<>();
-        int nextJobId = 1;
+     
 
         while (true) {
             reapCompletedJobs(jobs);
@@ -448,8 +462,10 @@ public class Main {
                 if (backgroundJob) {
                     long pid = process.pid();
 
+                    int jobId = getNextJobId(jobs);
+
                     Job job = new Job(
-                            nextJobId,
+                            jobId,
                             pid,
                             input,
                             "Running",
@@ -457,10 +473,7 @@ public class Main {
 
                     jobs.add(job);
 
-                    System.out.println("[" + nextJobId + "] " + pid);
-
-                    nextJobId++;
-
+                    System.out.println("[" + jobId + "] " + pid);
                     // don't wait
                 } else {
                     process.waitFor();
