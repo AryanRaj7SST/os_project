@@ -2,6 +2,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -109,14 +110,14 @@ public class Main {
         return args.toArray(new String[0]);
     }
 
-    private static void reapCompletedJobs(List<Job> jobs) {
+    private static void reapCompletedJobs(List jobs) {
 
-        List<Job> completedJobs = new ArrayList<>();
+        List completedJobs = new ArrayList<>();
 
         int size = jobs.size();
 
         for (int i = 0; i < size; i++) {
-            Job job = jobs.get(i);
+            Job job = (Job) jobs.get(i);
 
             if (!job.process.isAlive()) {
 
@@ -171,6 +172,7 @@ public class Main {
         List<Job> jobs = new ArrayList<>();
      
 
+        shellLoop:
         while (true) {
             reapCompletedJobs(jobs);
             System.out.print("$ ");
@@ -231,6 +233,81 @@ public class Main {
             }
 
             parts = commandParts.toArray(new String[0]);
+
+            for (String part : parts) {
+                if (part.equals("|")) {
+
+                    int pipeIndex = -1;
+
+                    for (int i = 0; i < parts.length; i++) {
+                        if (parts[i].equals("|")) {
+                            pipeIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (pipeIndex > 0 && pipeIndex < parts.length - 1) {
+                        String[] leftParts = Arrays.copyOfRange(parts, 0, pipeIndex);
+                        String[] rightParts = Arrays.copyOfRange(parts, pipeIndex + 1, parts.length);
+
+                        ProcessBuilder leftBuilder = new ProcessBuilder(leftParts);
+                        ProcessBuilder rightBuilder = new ProcessBuilder(rightParts);
+
+                        leftBuilder.directory(currentDirectory);
+                        leftBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                        leftBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                        leftBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                        rightBuilder.directory(currentDirectory);
+                        rightBuilder.redirectInput(ProcessBuilder.Redirect.PIPE);
+
+                        if (outputFile != null) {
+                            if (appendOutput) {
+                                rightBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
+                            } else {
+                                rightBuilder.redirectOutput(new File(outputFile));
+                            }
+                        } else {
+                            rightBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                        }
+
+                        if (errorFile != null) {
+                            if (appendError) {
+                                rightBuilder.redirectError(
+                                        ProcessBuilder.Redirect.appendTo(
+                                                new File(errorFile)));
+                            } else {
+                                rightBuilder.redirectError(new File(errorFile));
+                            }
+                        } else {
+                            rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        }
+
+                        Process leftProcess = leftBuilder.start();
+                        Process rightProcess = rightBuilder.start();
+
+                        Thread pipeThread = new Thread(() -> {
+                            try (
+                                    var in = leftProcess.getInputStream();
+                                    var out = rightProcess.getOutputStream()) {
+
+                                in.transferTo(out);
+                                out.close();
+
+                            } catch (IOException ignored) {
+                            }
+                        });
+
+                        pipeThread.start();
+
+                        leftProcess.waitFor();
+                        pipeThread.join();
+                        rightProcess.waitFor();
+
+                        continue shellLoop;
+                    }
+                }
+            }
 
             boolean backgroundJob = false;
 
@@ -317,15 +394,12 @@ public class Main {
             }
 
             if (parts[0].equals("jobs")) {
-
-                List<Job> completedJobs = new ArrayList<>();
+                reapCompletedJobs(jobs);
 
                 int size = jobs.size();
 
                 for (int i = 0; i < size; i++) {
                     Job job = jobs.get(i);
-
-                    boolean done = !job.process.isAlive();
 
                     String marker = " ";
 
@@ -337,31 +411,14 @@ public class Main {
                         marker = "-";
                     }
 
-                    if (done) {
-                        String cmd = job.command;
-                        if (cmd.endsWith(" &")) {
-                            cmd = cmd.substring(0, cmd.length() - 2);
-                        }
-
-                        System.out.printf(
-                                "[%d]%s  %-24s%s%n",
-                                job.jobId,
-                                marker,
-                                "Done",
-                                cmd);
-
-                        completedJobs.add(job);
-                    } else {
-                        System.out.printf(
-                                "[%d]%s  %-24s%s%n",
-                                job.jobId,
-                                marker,
-                                "Running",
-                                job.command);
-                    }
+                    System.out.printf(
+                            "[%d]%s  %-24s%s%n",
+                            job.jobId,
+                            marker,
+                            "Running",
+                            job.command);
                 }
 
-                jobs.removeAll(completedJobs);
                 continue;
             }
 
