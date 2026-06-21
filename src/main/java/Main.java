@@ -39,14 +39,15 @@ public class Main {
         Set<String> builtins = Set.of("echo", "exit", "type", "pwd", "cd", "jobs", "export");
 
         while (true) {
-            reapDoneJobs(System.out);
-
             System.out.print("$ ");
             System.out.flush();
 
             String input = scanner.nextLine();
             List<String> tokens = tokenize(input);
-            if (tokens.isEmpty()) continue;
+            if (tokens.isEmpty()) {
+                reapDoneJobs(System.out);
+                continue;
+            }
 
             boolean isBackground = !tokens.isEmpty() && tokens.get(tokens.size() - 1).equals("&");
             if (isBackground) {
@@ -54,12 +55,16 @@ public class Main {
                 tokens.remove(tokens.size() - 1);
             }
 
-            if (tokens.isEmpty()) continue;
+            if (tokens.isEmpty()) {
+                reapDoneJobs(System.out);
+                continue;
+            }
 
             List<List<String>> pipelineSegments = splitOnPipe(tokens);
 
             if (pipelineSegments.size() > 1) {
                 runPipeline(pipelineSegments, isBackground);
+                reapDoneJobs(System.out);
                 continue;
             }
 
@@ -88,7 +93,10 @@ public class Main {
                 }
             }
 
-            if (cmdTokens.isEmpty()) continue;
+            if (cmdTokens.isEmpty()) {
+                reapDoneJobs(System.out);
+                continue;
+            }
             String cmd = cmdTokens.get(0);
 
             PrintStream outStream = System.out;
@@ -159,6 +167,7 @@ public class Main {
 
             } else if (cmd.equals("type")) {
                 if (cmdTokens.size() < 2) {
+                    reapDoneJobs(System.out);
                     continue;
                 }
 
@@ -236,6 +245,11 @@ public class Main {
             if (stderrFile != null && stderrFile != stdoutFile) {
                 errStream.close();
             }
+
+            // Reap completed background jobs AFTER command output, so the
+            // "Done" notification appears before the NEXT prompt (not before
+            // the current command's own output).
+            reapDoneJobs(System.out);
         }
     }
 
