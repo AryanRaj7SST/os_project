@@ -415,6 +415,16 @@ public class Main {
         return segments;
     }
 
+    static boolean pipelineHasBuiltin(List<List<String>> segments) {
+        for (List<String> segment : segments) {
+            if (!segment.isEmpty() && isBuiltin(segment.get(0))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     static void runPipeline(List<List<String>> segments, boolean isBackground) throws Exception {
         if (isBackground) {
             int jobNum = nextJobNumber();
@@ -429,6 +439,34 @@ public class Main {
             backgroundJobs.add(new Job(jobNum, pid, pipelineToString(segments), pipelineThread));
             System.out.println("[" + jobNum + "] " + pid);
             pipelineThread.start();
+            return;
+        }
+
+        if (!pipelineHasBuiltin(segments)) {
+            List<ProcessBuilder> builders = new ArrayList<>();
+
+            for (List<String> segment : segments) {
+                if (segment.isEmpty()) {
+                    continue;
+                }
+
+                ProcessBuilder pb = new ProcessBuilder(segment);
+                pb.environment().clear();
+                pb.environment().putAll(envVars);
+                pb.directory(currentDir.toFile());
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                builders.add(pb);
+            }
+
+            if (!builders.isEmpty()) {
+                List<Process> processes = ProcessBuilder.startPipeline(builders);
+
+                for (Process process : processes) {
+                    process.waitFor();
+                }
+            }
+
             return;
         }
 
