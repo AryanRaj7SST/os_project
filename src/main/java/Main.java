@@ -111,7 +111,6 @@ public class Main {
     }
 
     private static void reapCompletedJobs(List jobs) {
-
         List completedJobs = new ArrayList<>();
 
         int size = jobs.size();
@@ -120,27 +119,16 @@ public class Main {
             Job job = (Job) jobs.get(i);
 
             if (!job.process.isAlive()) {
-
-                String marker = " ";
-
-                if (size == 1) {
-                    marker = "+";
-                } else if (i == size - 1) {
-                    marker = "+";
-                } else if (i == size - 2) {
-                    marker = "-";
-                }
-
                 String cmd = job.command;
 
                 if (cmd.endsWith(" &")) {
                     cmd = cmd.substring(0, cmd.length() - 2);
                 }
 
+                // Done notifications: no +/- marker, just spaces
                 System.out.printf(
-                        "[%d]%s  %-24s%s%n",
+                        "[%d]   %-24s%s%n",
                         job.jobId,
-                        marker,
                         "Done",
                         cmd);
 
@@ -251,11 +239,9 @@ public class Main {
 
                 leftBuilder.directory(currentDirectory);
                 leftBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                // Left stdout goes to a pipe — we manage it manually
                 leftBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
 
                 rightBuilder.directory(currentDirectory);
-                // Right stdin comes from the pipe — we manage it manually
                 rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
 
                 if (outputFile != null) {
@@ -282,7 +268,6 @@ public class Main {
                 Process leftProcess = leftBuilder.start();
                 Process rightProcess = rightBuilder.start();
 
-                // Thread to pump bytes from left stdout → right stdin
                 Thread pipeThread = new Thread(() -> {
                     try (
                         var in = leftProcess.getInputStream();
@@ -295,26 +280,26 @@ public class Main {
                                 out.write(buf, 0, n);
                                 out.flush();
                             } catch (IOException e) {
-                                // Right process closed its stdin (e.g. head exited after N lines)
+                                // Right process closed its stdin (e.g. head got enough lines)
                                 break;
                             }
                         }
                     } catch (IOException ignored) {
-                        // Left process closed its stdout — normal EOF
+                        // Left process closed stdout — normal EOF
                     }
-                    // Destroy left process in case it's still running (e.g. tail -f)
+                    // Destroy left in case it's still running (e.g. tail -f)
                     leftProcess.destroy();
                 });
 
                 pipeThread.start();
 
-                // Wait for right process to finish first — it determines pipeline exit
+                // Wait for right process first — it determines when pipeline is done
                 rightProcess.waitFor();
 
-                // Once right is done, kill left if still running (handles tail -f case)
+                // Kill left if still alive (handles tail -f which never exits on its own)
                 leftProcess.destroy();
 
-                // Wait for pipe thread to clean up
+                // Wait for pipe thread to finish cleanup
                 pipeThread.join();
 
                 // Reap left process
@@ -408,20 +393,31 @@ public class Main {
             }
 
             if (parts[0].equals("jobs")) {
-                reapCompletedJobs(jobs);
-
+                // Do NOT call reapCompletedJobs here — Done notifications
+                // belong at the next shell prompt, not interleaved in jobs output.
+                // Only list currently running jobs.
                 int size = jobs.size();
 
-                for (int i = 0; i < size; i++) {
-                    Job job = jobs.get(i);
+                // Count only alive jobs for marker assignment
+                List<Job> runningJobs = new ArrayList<>();
+                for (Job job : jobs) {
+                    if (job.process.isAlive()) {
+                        runningJobs.add(job);
+                    }
+                }
+
+                int runningSize = runningJobs.size();
+
+                for (int i = 0; i < runningSize; i++) {
+                    Job job = runningJobs.get(i);
 
                     String marker = " ";
 
-                    if (size == 1) {
+                    if (runningSize == 1) {
                         marker = "+";
-                    } else if (i == size - 1) {
+                    } else if (i == runningSize - 1) {
                         marker = "+";
-                    } else if (i == size - 2) {
+                    } else if (i == runningSize - 2) {
                         marker = "-";
                     }
 
@@ -515,7 +511,6 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-
                     if (appendError) {
                         pb.redirectError(
                                 ProcessBuilder.Redirect.appendTo(
@@ -523,7 +518,6 @@ public class Main {
                     } else {
                         pb.redirectError(new File(errorFile));
                     }
-
                 } else {
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                 }
