@@ -272,7 +272,7 @@ public class Main {
         };
     }
 
-    static void runBuiltin(List<String> tokens, InputStream in, OutputStream out) throws Exception {
+    static void runBuiltin(List<String> tokens, InputStream in, OutputStream out, boolean mutateState) throws Exception {
         PrintStream ps = new PrintStream(out);
 
         String cmd = tokens.get(0);
@@ -326,15 +326,39 @@ public class Main {
                 newDir = newDir.normalize();
 
                 if (newDir.toFile().isDirectory()) {
-                    currentDir = newDir;
+                    if (mutateState) {
+                        currentDir = newDir;
+                    }
+                } else {
+                    System.err.println("cd: " + destination + ": No such file or directory");
                 }
                 break;
 
             case "jobs":
-                printJobs(ps, false);
+                List<Job> snapshot = new ArrayList<>(backgroundJobs);
+                int n = snapshot.size();
+                int last = n - 1;
+                int secondLast = n - 2;
+
+                for (int i = 0; i < n; i++) {
+                    Job job = snapshot.get(i);
+                    String marker = (i == last) ? "+" : (i == secondLast) ? "-" : " ";
+
+                    if (job.isAlive()) {
+                        String status = String.format("%-24s", "Running");
+                        ps.println("[" + job.number + "]" + marker + " " + status + job.command + " &");
+                    } else {
+                        String status = String.format("%-24s", "Done");
+                        ps.println("[" + job.number + "]" + marker + " " + status + job.command);
+                    }
+                }
                 break;
 
             case "export":
+                if (!mutateState) {
+                    break;
+                }
+
                 for (int i = 1; i < tokens.size(); i++) {
                     String assignment = tokens.get(i);
                     int eq = assignment.indexOf('=');
@@ -348,7 +372,9 @@ public class Main {
                 break;
 
             case "exit":
-                System.exit(0);
+                if (mutateState) {
+                    System.exit(0);
+                }
                 break;
 
             default:
@@ -376,6 +402,18 @@ public class Main {
     }
 
     static void runPipeline(List<List<String>> segments, boolean isBackground) throws Exception {
+        if (isBackground) {
+            Thread pipelineThread = new Thread(() -> {
+                try {
+                    runPipeline(segments, false);
+                } catch (Exception ignored) {
+                }
+            });
+
+            pipelineThread.start();
+            return;
+        }
+
         byte[] input = new byte[0];
 
         for (List<String> segment : segments) {
@@ -386,14 +424,12 @@ public class Main {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
 
             if (isBuiltin(segment.get(0))) {
-                runBuiltin(segment, new ByteArrayInputStream(input), output);
+                runBuiltin(segment, new ByteArrayInputStream(input), output, false);
             } else {
                 ProcessBuilder pb = new ProcessBuilder(segment);
                 pb.environment().clear();
                 pb.environment().putAll(envVars);
                 pb.directory(currentDir.toFile());
-                pb.redirectInput(ProcessBuilder.Redirect.PIPE);
-                pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
 
                 Process process = pb.start();
