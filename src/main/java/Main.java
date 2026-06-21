@@ -23,16 +23,30 @@ public class Main {
         long pid;
         String command;
         Process process;
+        Thread worker;
 
         Job(int number, long pid, String command, Process process) {
             this.number = number;
             this.pid = pid;
             this.command = command;
             this.process = process;
+            this.worker = null;
+        }
+
+        Job(int number, long pid, String command, Thread worker) {
+            this.number = number;
+            this.pid = pid;
+            this.command = command;
+            this.process = null;
+            this.worker = worker;
         }
 
         boolean isAlive() {
-            return process.isAlive();
+            if (process != null) {
+                return process.isAlive();
+            }
+
+            return worker != null && worker.isAlive();
         }
     }
 
@@ -330,7 +344,7 @@ public class Main {
                         currentDir = newDir;
                     }
                 } else {
-                    System.err.println("cd: " + destination + ": No such file or directory");
+                    ps.println("cd: " + destination + ": No such file or directory");
                 }
                 break;
 
@@ -403,6 +417,7 @@ public class Main {
 
     static void runPipeline(List<List<String>> segments, boolean isBackground) throws Exception {
         if (isBackground) {
+            int jobNum = nextJobNumber();
             Thread pipelineThread = new Thread(() -> {
                 try {
                     runPipeline(segments, false);
@@ -410,6 +425,9 @@ public class Main {
                 }
             });
 
+            long pid = pipelineThread.getId();
+            backgroundJobs.add(new Job(jobNum, pid, pipelineToString(segments), pipelineThread));
+            System.out.println("[" + jobNum + "] " + pid);
             pipelineThread.start();
             return;
         }
