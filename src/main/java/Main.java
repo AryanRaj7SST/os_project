@@ -6,7 +6,11 @@ import java.util.Map;
 import java.util.HashMap;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.PrintStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -261,6 +265,99 @@ public class Main {
         return value;
     }
 
+    static boolean isBuiltin(String cmd) {
+        return switch (cmd) {
+            case "echo", "type", "pwd", "cd", "exit", "jobs", "export" -> true;
+            default -> false;
+        };
+    }
+
+    static void runBuiltin(List<String> tokens, InputStream in, OutputStream out) throws Exception {
+        PrintStream ps = new PrintStream(out);
+
+        String cmd = tokens.get(0);
+
+        switch (cmd) {
+            case "echo":
+                ps.println(String.join(" ", tokens.subList(1, tokens.size())));
+                break;
+
+            case "pwd":
+                ps.println(currentDir.toAbsolutePath());
+                break;
+
+            case "type":
+                if (tokens.size() < 2) {
+                    break;
+                }
+
+                String target = tokens.get(1);
+
+                if (isBuiltin(target)) {
+                    ps.println(target + " is a shell builtin");
+                } else {
+                    String path = findInPath(target);
+                    if (path != null) {
+                        ps.println(target + " is " + path);
+                    } else {
+                        ps.println(target + ": not found");
+                    }
+                }
+                break;
+
+            case "cd":
+                String destination = tokens.size() > 1 ? tokens.get(1) : "~";
+
+                if (destination.equals("~")) {
+                    String home = envVars.get("HOME");
+                    if (home == null) {
+                        home = System.getProperty("user.home");
+                    }
+                    destination = home;
+                }
+
+                Path newDir;
+                if (Paths.get(destination).isAbsolute()) {
+                    newDir = Paths.get(destination);
+                } else {
+                    newDir = currentDir.resolve(destination);
+                }
+
+                newDir = newDir.normalize();
+
+                if (newDir.toFile().isDirectory()) {
+                    currentDir = newDir;
+                }
+                break;
+
+            case "jobs":
+                printJobs(ps, false);
+                break;
+
+            case "export":
+                for (int i = 1; i < tokens.size(); i++) {
+                    String assignment = tokens.get(i);
+                    int eq = assignment.indexOf('=');
+                    if (eq != -1) {
+                        String key = assignment.substring(0, eq);
+                        String value = assignment.substring(eq + 1);
+                        value = expandVariables(value);
+                        envVars.put(key, value);
+                    }
+                }
+                break;
+
+            case "exit":
+                System.exit(0);
+                break;
+
+            default:
+                break;
+        }
+
+        ps.flush();
+    }
+
     static List<List<String>> splitOnPipe(List<String> tokens) {
         List<List<String>> segments = new ArrayList<>();
         List<String> current = new ArrayList<>();
@@ -279,41 +376,45 @@ public class Main {
     }
 
     static void runPipeline(List<List<String>> segments, boolean isBackground) throws Exception {
-        List<ProcessBuilder> builders = new ArrayList<>();
+        byte[] input = new byte[0];
 
-        for (int i = 0; i < segments.size(); i++) {
-            List<String> segment = segments.get(i);
-            if (segment.isEmpty()) continue;
-
-            ProcessBuilder pb = new ProcessBuilder(segment);
-            pb.environment().clear();
-            pb.environment().putAll(envVars);
-            pb.directory(currentDir.toFile());
-            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-            if (i == segments.size() - 1) {
-                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+        for (List<String> segment : segments) {
+            if (segment.isEmpty()) {
+                continue;
             }
 
-            builders.add(pb);
-        }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
 
-        if (builders.isEmpty()) return;
+            if (isBuiltin(segment.get(0))) {
+                runBuiltin(segment, new ByteArrayInputStream(input), output);
+            } else {
+                ProcessBuilder pb = new ProcessBuilder(segment);
+                pb.environment().clear();
+                pb.environment().putAll(envVars);
+                pb.directory(currentDir.toFile());
+                pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
 
-        List<Process> processes = ProcessBuilder.startPipeline(builders);
-        Process last = processes.get(processes.size() - 1);
+                Process process = pb.start();
 
-        if (isBackground) {
-            int jobNum = nextJobNumber();
-            long pid = last.pid();
-            String cmdString = pipelineToString(segments);
-            backgroundJobs.add(new Job(jobNum, pid, cmdString, last));
-            System.out.println("[" + jobNum + "] " + pid);
-        } else {
-            for (Process p : processes) {
-                p.waitFor();
+                try (OutputStream processInput = process.getOutputStream()) {
+                    processInput.write(input);
+                    processInput.flush();
+                }
+
+                try (InputStream processOutput = process.getInputStream()) {
+                    processOutput.transferTo(output);
+                }
+
+                process.waitFor();
             }
+
+            input = output.toByteArray();
         }
+
+        System.out.write(input);
+        System.out.flush();
     }
 
     static String pipelineToString(List<List<String>> segments) {
