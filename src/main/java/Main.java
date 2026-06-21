@@ -119,16 +119,26 @@ public class Main {
             Job job = (Job) jobs.get(i);
 
             if (!job.process.isAlive()) {
-                String cmd = job.command;
+                // Assign +/- marker based on position among ALL jobs (same as bash)
+                String marker = " ";
+                if (size == 1) {
+                    marker = "+";
+                } else if (i == size - 1) {
+                    marker = "+";
+                } else if (i == size - 2) {
+                    marker = "-";
+                }
 
+                String cmd = job.command;
                 if (cmd.endsWith(" &")) {
                     cmd = cmd.substring(0, cmd.length() - 2);
                 }
 
-                // Done notifications: no +/- marker, just spaces
+                // "Done" is 4 chars vs "Running" 7 chars — pad width 21 to align
                 System.out.printf(
-                        "[%d]   %-24s%s%n",
+                        "[%d]%s  %-21s%s%n",
                         job.jobId,
+                        marker,
                         "Done",
                         cmd);
 
