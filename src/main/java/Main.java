@@ -1,570 +1,449 @@
+import java.util.Scanner;
+import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.PrintStream;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class Main {
+    static Path currentDir = Paths.get(System.getProperty("user.dir"));
+    static Map<String, String> envVars = new HashMap<>(System.getenv());
 
-    private static class Job {
-        int jobId;
+    static class Job {
+        int number;
         long pid;
         String command;
-        String status;
         Process process;
 
-        Job(int jobId, long pid, String command, String status, Process process) {
-            this.jobId = jobId;
+        Job(int number, long pid, String command, Process process) {
+            this.number = number;
             this.pid = pid;
             this.command = command;
-            this.status = status;
             this.process = process;
+        }
+
+        boolean isAlive() {
+            return process.isAlive();
         }
     }
 
-    private static String findExecutable(String command) {
-        String pathEnv = System.getenv("PATH");
+    static List<Job> backgroundJobs = new ArrayList<>();
+
+    public static void main(String[] args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        Set<String> builtins = Set.of("echo", "exit", "type", "pwd", "cd", "jobs", "export");
+
+        while (true) {
+            reapDoneJobs(System.out);
+
+            System.out.print("$ ");
+            System.out.flush();
+
+            String input = scanner.nextLine();
+            List<String> tokens = tokenize(input);
+            if (tokens.isEmpty()) continue;
+
+            boolean isBackground = !tokens.isEmpty() && tokens.get(tokens.size() - 1).equals("&");
+            if (isBackground) {
+                tokens = new ArrayList<>(tokens);
+                tokens.remove(tokens.size() - 1);
+            }
+
+            if (tokens.isEmpty()) continue;
+
+            List<List<String>> pipelineSegments = splitOnPipe(tokens);
+
+            if (pipelineSegments.size() > 1) {
+                runPipeline(pipelineSegments, isBackground);
+                continue;
+            }
+
+            String stdoutFile = null;
+            String stderrFile = null;
+            boolean appendStdout = false;
+            boolean appendStderr = false;
+            List<String> cmdTokens = new ArrayList<>();
+
+            for (int i = 0; i < tokens.size(); i++) {
+                String t = tokens.get(i);
+                if ((t.equals(">") || t.equals("1>")) && i + 1 < tokens.size()) {
+                    stdoutFile = tokens.get(++i);
+                    appendStdout = false;
+                } else if ((t.equals(">>") || t.equals("1>>")) && i + 1 < tokens.size()) {
+                    stdoutFile = tokens.get(++i);
+                    appendStdout = true;
+                } else if (t.equals("2>") && i + 1 < tokens.size()) {
+                    stderrFile = tokens.get(++i);
+                    appendStderr = false;
+                } else if (t.equals("2>>") && i + 1 < tokens.size()) {
+                    stderrFile = tokens.get(++i);
+                    appendStderr = true;
+                } else {
+                    cmdTokens.add(t);
+                }
+            }
+
+            if (cmdTokens.isEmpty()) continue;
+            String cmd = cmdTokens.get(0);
+
+            PrintStream outStream = System.out;
+            PrintStream errStream = System.err;
+
+            if (stdoutFile != null) {
+                File f = new File(stdoutFile);
+                if (!f.isAbsolute()) f = new File(currentDir.toFile(), stdoutFile);
+                outStream = new PrintStream(new FileOutputStream(f, appendStdout));
+            }
+
+            if (stderrFile != null) {
+                File f = new File(stderrFile);
+                if (!f.isAbsolute()) f = new File(currentDir.toFile(), stderrFile);
+                errStream = new PrintStream(new FileOutputStream(f, appendStderr));
+            }
+
+            if (cmd.equals("exit") || cmd.equals("exit 0")) {
+                System.exit(0);
+
+            } else if (cmd.equals("echo")) {
+                List<String> echoArgs = cmdTokens.subList(1, cmdTokens.size());
+                outStream.println(String.join(" ", echoArgs));
+
+            } else if (cmd.equals("pwd")) {
+                outStream.println(currentDir.toAbsolutePath());
+
+            } else if (cmd.equals("cd")) {
+                String target = cmdTokens.size() > 1 ? cmdTokens.get(1) : "~";
+
+                if (target.equals("~")) {
+                    String home = envVars.get("HOME");
+                    if (home == null) {
+                        home = System.getProperty("user.home");
+                    }
+                    target = home;
+                }
+
+                Path newDir;
+                if (Paths.get(target).isAbsolute()) {
+                    newDir = Paths.get(target);
+                } else {
+                    newDir = currentDir.resolve(target);
+                }
+
+                newDir = newDir.normalize();
+
+                if (newDir.toFile().isDirectory()) {
+                    currentDir = newDir;
+                } else {
+                    errStream.println("cd: " + target + ": No such file or directory");
+                }
+
+            } else if (cmd.equals("export")) {
+                for (int i = 1; i < cmdTokens.size(); i++) {
+                    String assignment = cmdTokens.get(i);
+                    int eq = assignment.indexOf('=');
+                    if (eq != -1) {
+                        String key = assignment.substring(0, eq);
+                        String value = assignment.substring(eq + 1);
+                        value = expandVariables(value);
+                        envVars.put(key, value);
+                    }
+                }
+
+            } else if (cmd.equals("jobs")) {
+                printJobs(outStream, false);
+
+            } else if (cmd.equals("type")) {
+                if (cmdTokens.size() < 2) {
+                    continue;
+                }
+
+                String target = cmdTokens.get(1);
+
+                if (builtins.contains(target)) {
+                    outStream.println(target + " is a shell builtin");
+                } else {
+                    String path = findInPath(target);
+                    if (path != null) {
+                        outStream.println(target + " is " + path);
+                    } else {
+                        outStream.println(target + ": not found");
+                    }
+                }
+
+            } else {
+                String path = findInPath(cmd);
+
+                if (path != null) {
+                    ProcessBuilder pb = new ProcessBuilder(cmdTokens);
+                    pb.environment().clear();
+                    pb.environment().putAll(envVars);
+                    pb.directory(currentDir.toFile());
+
+                    if (stdoutFile != null) {
+                        File outFile = new File(stdoutFile);
+                        if (!outFile.isAbsolute()) {
+                            outFile = new File(currentDir.toFile(), stdoutFile);
+                        }
+                        pb.redirectOutput(
+                            appendStdout
+                                ? ProcessBuilder.Redirect.appendTo(outFile)
+                                : ProcessBuilder.Redirect.to(outFile)
+                        );
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+
+                    if (stderrFile != null) {
+                        File errFile = new File(stderrFile);
+                        if (!errFile.isAbsolute()) {
+                            errFile = new File(currentDir.toFile(), stderrFile);
+                        }
+                        pb.redirectError(
+                            appendStderr
+                                ? ProcessBuilder.Redirect.appendTo(errFile)
+                                : ProcessBuilder.Redirect.to(errFile)
+                        );
+                    } else {
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    }
+
+                    Process p = pb.start();
+
+                    if (isBackground) {
+                        int jobNum = nextJobNumber();
+                        long pid = p.pid();
+                        String cmdString = String.join(" ", cmdTokens);
+                        backgroundJobs.add(new Job(jobNum, pid, cmdString, p));
+                        System.out.println("[" + jobNum + "] " + pid);
+                    } else {
+                        p.waitFor();
+                    }
+
+                } else {
+                    errStream.println(cmd + ": command not found");
+                }
+            }
+
+            if (stdoutFile != null) {
+                outStream.close();
+            }
+
+            if (stderrFile != null && stderrFile != stdoutFile) {
+                errStream.close();
+            }
+        }
+    }
+
+    static String expandVariables(String value) {
+        if (value.contains("$PATH")) {
+            String currentPath = envVars.getOrDefault("PATH", "");
+            value = value.replace("$PATH", currentPath);
+        }
+        return value;
+    }
+
+    static List<List<String>> splitOnPipe(List<String> tokens) {
+        List<List<String>> segments = new ArrayList<>();
+        List<String> current = new ArrayList<>();
+
+        for (String t : tokens) {
+            if (t.equals("|")) {
+                segments.add(current);
+                current = new ArrayList<>();
+            } else {
+                current.add(t);
+            }
+        }
+        segments.add(current);
+
+        return segments;
+    }
+
+    static void runPipeline(List<List<String>> segments, boolean isBackground) throws Exception {
+        List<ProcessBuilder> builders = new ArrayList<>();
+
+        for (int i = 0; i < segments.size(); i++) {
+            List<String> segment = segments.get(i);
+            if (segment.isEmpty()) continue;
+
+            ProcessBuilder pb = new ProcessBuilder(segment);
+            pb.environment().clear();
+            pb.environment().putAll(envVars);
+            pb.directory(currentDir.toFile());
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+            if (i == segments.size() - 1) {
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            }
+
+            builders.add(pb);
+        }
+
+        if (builders.isEmpty()) return;
+
+        List<Process> processes = ProcessBuilder.startPipeline(builders);
+        Process last = processes.get(processes.size() - 1);
+
+        if (isBackground) {
+            int jobNum = nextJobNumber();
+            long pid = last.pid();
+            String cmdString = pipelineToString(segments);
+            backgroundJobs.add(new Job(jobNum, pid, cmdString, last));
+            System.out.println("[" + jobNum + "] " + pid);
+        } else {
+            for (Process p : processes) {
+                p.waitFor();
+            }
+        }
+    }
+
+    static String pipelineToString(List<List<String>> segments) {
+        List<String> parts = new ArrayList<>();
+        for (List<String> segment : segments) {
+            parts.add(String.join(" ", segment));
+        }
+        return String.join(" | ", parts);
+    }
+
+    static int nextJobNumber() {
+        if (backgroundJobs.isEmpty()) {
+            return 1;
+        }
+        int highest = 0;
+        for (Job job : backgroundJobs) {
+            if (job.number > highest) {
+                highest = job.number;
+            }
+        }
+        return highest + 1;
+    }
+
+    static void reapDoneJobs(PrintStream outStream) {
+        printJobs(outStream, true);
+    }
+
+    static void printJobs(PrintStream outStream, boolean reapOnly) {
+        int n = backgroundJobs.size();
+        int last = n - 1;
+        int secondLast = n - 2;
+
+        List<Job> remaining = new ArrayList<>();
+
+        for (int i = 0; i < n; i++) {
+            Job job = backgroundJobs.get(i);
+            String marker = (i == last) ? "+" : (i == secondLast) ? "-" : " ";
+
+            if (job.isAlive()) {
+                remaining.add(job);
+                if (!reapOnly) {
+                    String status = String.format("%-24s", "Running");
+                    outStream.println("[" + job.number + "]" + marker + " " + status + job.command + " &");
+                }
+            } else {
+                String status = String.format("%-24s", "Done");
+                outStream.println("[" + job.number + "]" + marker + " " + status + job.command);
+            }
+        }
+
+        backgroundJobs = remaining;
+    }
+
+    static List<String> tokenize(String input) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+
+        boolean inSingle = false;
+        boolean inDouble = false;
+
+        int i = 0;
+
+        while (i < input.length()) {
+            char c = input.charAt(i);
+
+            if (inSingle) {
+                if (c == '\'') {
+                    inSingle = false;
+                } else {
+                    current.append(c);
+                }
+            } else if (inDouble) {
+                if (c == '"') {
+                    inDouble = false;
+                } else if (c == '\\') {
+                    if (i + 1 < input.length()) {
+                        char next = input.charAt(i + 1);
+                        if (next == '"' || next == '\\' || next == '$' || next == '`' || next == '\n') {
+                            current.append(next);
+                            i++;
+                        } else {
+                            current.append(c);
+                        }
+                    }
+                } else {
+                    current.append(c);
+                }
+            } else {
+                if (c == '\'') {
+                    inSingle = true;
+                } else if (c == '"') {
+                    inDouble = true;
+                } else if (c == '\\') {
+                    if (i + 1 < input.length()) {
+                        current.append(input.charAt(i + 1));
+                        i++;
+                    }
+                } else if (c == '|') {
+                    if (current.length() > 0) {
+                        tokens.add(current.toString());
+                        current.setLength(0);
+                    }
+                    tokens.add("|");
+                } else if (c == ' ' || c == '\t') {
+                    if (current.length() > 0) {
+                        tokens.add(current.toString());
+                        current.setLength(0);
+                    }
+                } else {
+                    current.append(c);
+                }
+            }
+
+            i++;
+        }
+
+        if (current.length() > 0) {
+            tokens.add(current.toString());
+        }
+
+        return tokens;
+    }
+
+    static String findInPath(String cmd) {
+        String pathEnv = envVars.get("PATH");
 
         if (pathEnv == null) {
             return null;
         }
 
-        String[] directories = pathEnv.split(File.pathSeparator);
+        for (String dir : pathEnv.split(File.pathSeparator)) {
+            File f = new File(dir, cmd);
+            if (f.exists() && f.canExecute()) {
+                return f.getAbsolutePath();
+            }
 
-        for (String dir : directories) {
-            File file = new File(dir, command);
-
-            if (file.exists() && file.isFile() && file.canExecute()) {
-                return file.getAbsolutePath();
+            if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                File exe = new File(dir, cmd + ".exe");
+                if (exe.exists() && exe.canExecute()) {
+                    return exe.getAbsolutePath();
+                }
             }
         }
 
         return null;
-    }
-
-    private static String[] parseCommand(String input) {
-        List<String> args = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-
-        boolean inSingleQuotes = false;
-        boolean inDoubleQuotes = false;
-
-        for (int i = 0; i < input.length(); i++) {
-            char c = input.charAt(i);
-
-            if (inDoubleQuotes && c == '\\') {
-                if (i + 1 < input.length()) {
-                    char next = input.charAt(i + 1);
-
-                    if (next == '"' || next == '\\') {
-                        current.append(next);
-                        i++;
-                    } else {
-                        current.append('\\');
-                        current.append(next);
-                        i++;
-                    }
-                } else {
-                    current.append('\\');
-                }
-                continue;
-            }
-
-            if (!inSingleQuotes && !inDoubleQuotes && c == '\\') {
-                if (i + 1 < input.length()) {
-                    current.append(input.charAt(i + 1));
-                    i++;
-                }
-                continue;
-            }
-
-            if (c == '\'' && !inDoubleQuotes) {
-                inSingleQuotes = !inSingleQuotes;
-                continue;
-            }
-
-            if (c == '"' && !inSingleQuotes) {
-                inDoubleQuotes = !inDoubleQuotes;
-                continue;
-            }
-
-            if (Character.isWhitespace(c)
-                    && !inSingleQuotes
-                    && !inDoubleQuotes) {
-                if (current.length() > 0) {
-                    args.add(current.toString());
-                    current.setLength(0);
-                }
-            } else {
-                current.append(c);
-            }
-        }
-
-        if (current.length() > 0) {
-            args.add(current.toString());
-        }
-
-        return args.toArray(new String[0]);
-    }
-
-    private static void reapCompletedJobs(List jobs) {
-        List completedJobs = new ArrayList<>();
-
-        int size = jobs.size();
-
-        for (int i = 0; i < size; i++) {
-            Job job = (Job) jobs.get(i);
-
-            if (!job.process.isAlive()) {
-                // Assign +/- marker based on position among ALL jobs (same as bash)
-                String marker = " ";
-                if (size == 1) {
-                    marker = "+";
-                } else if (i == size - 1) {
-                    marker = "+";
-                } else if (i == size - 2) {
-                    marker = "-";
-                }
-
-                String cmd = job.command;
-                if (cmd.endsWith(" &")) {
-                    cmd = cmd.substring(0, cmd.length() - 2);
-                }
-
-                // "Done" is 4 chars vs "Running" 7 chars — pad width 21 to align
-                System.out.printf(
-                        "[%d]%s  %-21s%s%n",
-                        job.jobId,
-                        marker,
-                        "Done",
-                        cmd);
-
-                completedJobs.add(job);
-            }
-        }
-
-        jobs.removeAll(completedJobs);
-    }
-
-    private static int getNextJobId(List<Job> jobs) {
-        if (jobs.isEmpty()) {
-            return 1;
-        }
-
-        int max = 0;
-
-        for (Job job : jobs) {
-            max = Math.max(max, job.jobId);
-        }
-
-        return max + 1;
-    }
-
-    public static void main(String[] args) throws IOException, InterruptedException {
-        Scanner scanner = new Scanner(System.in);
-
-        File currentDirectory = new File(System.getProperty("user.dir"));
-        List<Job> jobs = new ArrayList<>();
-
-        shellLoop:
-        while (true) {
-            reapCompletedJobs(jobs);
-            System.out.print("$ ");
-            String input = scanner.nextLine();
-
-            if (input.isEmpty()) {
-                continue;
-            }
-
-            String[] parts = parseCommand(input);
-
-            String outputFile = null;
-            String errorFile = null;
-            boolean appendOutput = false;
-            boolean appendError = false;
-
-            List<String> commandParts = new ArrayList<>();
-
-            for (int i = 0; i < parts.length; i++) {
-
-                if (parts[i].equals(">") || parts[i].equals("1>")) {
-                    appendOutput = false;
-                    if (i + 1 < parts.length) {
-                        outputFile = parts[i + 1];
-                    }
-                    i++;
-                    continue;
-                }
-
-                if (parts[i].equals(">>") || parts[i].equals("1>>")) {
-                    appendOutput = true;
-                    if (i + 1 < parts.length) {
-                        outputFile = parts[i + 1];
-                    }
-                    i++;
-                    continue;
-                }
-
-                if (parts[i].equals("2>")) {
-                    if (i + 1 < parts.length) {
-                        errorFile = parts[i + 1];
-                        appendError = false;
-                    }
-                    i++;
-                    continue;
-                }
-
-                if (parts[i].equals("2>>")) {
-                    if (i + 1 < parts.length) {
-                        errorFile = parts[i + 1];
-                        appendError = true;
-                    }
-                    i++;
-                    continue;
-                }
-
-                commandParts.add(parts[i]);
-            }
-
-            parts = commandParts.toArray(new String[0]);
-
-            // Check for pipe operator
-            int pipeIndex = -1;
-            for (int i = 0; i < parts.length; i++) {
-                if (parts[i].equals("|")) {
-                    pipeIndex = i;
-                    break;
-                }
-            }
-
-            if (pipeIndex > 0 && pipeIndex < parts.length - 1) {
-                String[] leftParts = Arrays.copyOfRange(parts, 0, pipeIndex);
-                String[] rightParts = Arrays.copyOfRange(parts, pipeIndex + 1, parts.length);
-
-                ProcessBuilder leftBuilder = new ProcessBuilder(leftParts);
-                ProcessBuilder rightBuilder = new ProcessBuilder(rightParts);
-
-                leftBuilder.directory(currentDirectory);
-                leftBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                leftBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-                rightBuilder.directory(currentDirectory);
-                rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-                if (outputFile != null) {
-                    if (appendOutput) {
-                        rightBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
-                    } else {
-                        rightBuilder.redirectOutput(new File(outputFile));
-                    }
-                } else {
-                    rightBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                if (errorFile != null) {
-                    if (appendError) {
-                        rightBuilder.redirectError(
-                                ProcessBuilder.Redirect.appendTo(new File(errorFile)));
-                    } else {
-                        rightBuilder.redirectError(new File(errorFile));
-                    }
-                } else {
-                    rightBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                Process leftProcess = leftBuilder.start();
-                Process rightProcess = rightBuilder.start();
-
-                Thread pipeThread = new Thread(() -> {
-                    try (
-                        var in = leftProcess.getInputStream();
-                        var out = rightProcess.getOutputStream()
-                    ) {
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = in.read(buf)) != -1) {
-                            try {
-                                out.write(buf, 0, n);
-                                out.flush();
-                            } catch (IOException e) {
-                                // Right process closed its stdin (e.g. head got enough lines)
-                                break;
-                            }
-                        }
-                    } catch (IOException ignored) {
-                        // Left process closed stdout — normal EOF
-                    }
-                    // Destroy left in case it's still running (e.g. tail -f)
-                    leftProcess.destroy();
-                });
-
-                pipeThread.start();
-
-                // Wait for right process first — it determines when pipeline is done
-                rightProcess.waitFor();
-
-                // Kill left if still alive (handles tail -f which never exits on its own)
-                leftProcess.destroy();
-
-                // Wait for pipe thread to finish cleanup
-                pipeThread.join();
-
-                // Reap left process
-                leftProcess.waitFor();
-
-                continue shellLoop;
-            }
-
-            boolean backgroundJob = false;
-
-            if (parts.length > 0 && parts[parts.length - 1].equals("&")) {
-                backgroundJob = true;
-
-                String[] temp = new String[parts.length - 1];
-                System.arraycopy(parts, 0, temp, 0, parts.length - 1);
-                parts = temp;
-            }
-
-            if (parts.length == 0) {
-                continue;
-            }
-
-            if (errorFile != null) {
-                File errFile = new File(errorFile);
-
-                File parent = errFile.getParentFile();
-                if (parent != null) {
-                    parent.mkdirs();
-                }
-
-                if (!appendError) {
-                    try (FileOutputStream ignored = new FileOutputStream(errFile, false)) {
-                        // create empty stderr file
-                    }
-                } else {
-                    if (!errFile.exists()) {
-                        errFile.createNewFile();
-                    }
-                }
-            }
-
-            if (parts[0].equals("exit")) {
-                break;
-            }
-
-            if (parts[0].equals("pwd")) {
-                String output = currentDirectory.getCanonicalPath();
-
-                if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
-                        ps.println(output);
-                    }
-                } else {
-                    System.out.println(output);
-                }
-
-                continue;
-            }
-
-            if (parts[0].equals("cd")) {
-                if (parts.length < 2) {
-                    continue;
-                }
-
-                String path = parts[1];
-                File newDir;
-
-                if (path.equals("~")) {
-                    newDir = new File(System.getenv("HOME"));
-                } else if (path.startsWith("/")) {
-                    newDir = new File(path);
-                } else {
-                    newDir = new File(currentDirectory, path);
-                }
-
-                newDir = newDir.getCanonicalFile();
-
-                if (newDir.exists() && newDir.isDirectory()) {
-                    currentDirectory = newDir;
-                } else {
-                    if (errorFile != null) {
-                        try (PrintStream ps = new PrintStream(new FileOutputStream(errorFile, appendError))) {
-                            ps.println("cd: " + path + ": No such file or directory");
-                        }
-                    } else {
-                        System.out.println("cd: " + path + ": No such file or directory");
-                    }
-                }
-
-                continue;
-            }
-
-            if (parts[0].equals("jobs")) {
-                // Do NOT call reapCompletedJobs here — Done notifications
-                // belong at the next shell prompt, not interleaved in jobs output.
-                // Only list currently running jobs.
-                int size = jobs.size();
-
-                // Count only alive jobs for marker assignment
-                List<Job> runningJobs = new ArrayList<>();
-                for (Job job : jobs) {
-                    if (job.process.isAlive()) {
-                        runningJobs.add(job);
-                    }
-                }
-
-                int runningSize = runningJobs.size();
-
-                for (int i = 0; i < runningSize; i++) {
-                    Job job = runningJobs.get(i);
-
-                    String marker = " ";
-
-                    if (runningSize == 1) {
-                        marker = "+";
-                    } else if (i == runningSize - 1) {
-                        marker = "+";
-                    } else if (i == runningSize - 2) {
-                        marker = "-";
-                    }
-
-                    System.out.printf(
-                            "[%d]%s  %-24s%s%n",
-                            job.jobId,
-                            marker,
-                            "Running",
-                            job.command);
-                }
-
-                continue;
-            }
-
-            if (parts[0].equals("echo")) {
-                StringBuilder sb = new StringBuilder();
-
-                for (int i = 1; i < parts.length; i++) {
-                    if (i > 1) {
-                        sb.append(" ");
-                    }
-                    sb.append(parts[i]);
-                }
-
-                if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
-                        ps.println(sb);
-                    }
-                } else {
-                    System.out.println(sb);
-                }
-
-                continue;
-            }
-
-            if (parts[0].equals("type")) {
-                if (parts.length < 2) {
-                    continue;
-                }
-
-                String cmd = parts[1];
-                String result;
-
-                if (cmd.equals("echo")
-                        || cmd.equals("exit")
-                        || cmd.equals("type")
-                        || cmd.equals("pwd")
-                        || cmd.equals("cd")
-                        || cmd.equals("jobs")) {
-
-                    result = cmd + " is a shell builtin";
-
-                } else {
-                    String executablePath = findExecutable(cmd);
-
-                    if (executablePath != null) {
-                        result = cmd + " is " + executablePath;
-                    } else {
-                        result = cmd + ": not found";
-                    }
-                }
-
-                if (outputFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(outputFile, appendOutput))) {
-                        ps.println(result);
-                    }
-                } else {
-                    System.out.println(result);
-                }
-
-                continue;
-            }
-
-            String executablePath = findExecutable(parts[0]);
-
-            if (executablePath != null) {
-
-                ProcessBuilder pb = new ProcessBuilder(parts);
-
-                pb.directory(currentDirectory);
-                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-
-                if (outputFile != null) {
-                    if (appendOutput) {
-                        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
-                    } else {
-                        pb.redirectOutput(new File(outputFile));
-                    }
-                } else {
-                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                if (errorFile != null) {
-                    if (appendError) {
-                        pb.redirectError(
-                                ProcessBuilder.Redirect.appendTo(
-                                        new File(errorFile)));
-                    } else {
-                        pb.redirectError(new File(errorFile));
-                    }
-                } else {
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                Process process = pb.start();
-
-                if (backgroundJob) {
-                    long pid = process.pid();
-
-                    int jobId = getNextJobId(jobs);
-
-                    Job job = new Job(
-                            jobId,
-                            pid,
-                            input,
-                            "Running",
-                            process);
-
-                    jobs.add(job);
-
-                    System.out.println("[" + jobId + "] " + pid);
-                    // don't wait
-                } else {
-                    process.waitFor();
-                }
-
-            } else {
-                if (errorFile != null) {
-                    try (PrintStream ps = new PrintStream(new FileOutputStream(errorFile, appendError))) {
-                        ps.println(parts[0] + ": command not found");
-                    }
-                } else {
-                    System.out.println(parts[0] + ": command not found");
-                }
-            }
-        }
-
-        scanner.close();
     }
 }
