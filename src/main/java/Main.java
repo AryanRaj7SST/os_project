@@ -284,6 +284,7 @@ public class Main {
         int n = segments.size();
         Process[] externalProcesses = new Process[n];
         Thread[] builtinThreads = new Thread[n];
+        List<Thread> feederThreads = new ArrayList<>();
 
         InputStream prevStdout = null;
 
@@ -371,12 +372,14 @@ public class Main {
                         }
                     });
                     feeder.start();
+                    feederThreads.add(feeder);
                 }
 
                 prevStdout = isLast ? null : p.getInputStream();
             }
         }
 
+        // Find the last external process for background job tracking
         Process lastProcess = null;
         for (int i = n - 1; i >= 0; i--) {
             if (externalProcesses[i] != null) {
@@ -392,9 +395,15 @@ public class Main {
             backgroundJobs.add(new Job(jobNum, pid, cmdString, lastProcess));
             System.out.println("[" + jobNum + "] " + pid);
         } else {
-            if (lastProcess != null) {
-                lastProcess.waitFor();
+            // Wait for ALL external processes (not just the last one)
+            for (Process p : externalProcesses) {
+                if (p != null) p.waitFor();
             }
+            // Wait for all feeder threads to finish piping data
+            for (Thread t : feederThreads) {
+                t.join();
+            }
+            // Wait for all builtin threads
             for (Thread t : builtinThreads) {
                 if (t != null) t.join();
             }
